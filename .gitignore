@@ -36,11 +36,24 @@ Thumbs.db
 *.log
 logs/
 
-# Output directories
+# Output directories - these are now organized in output/
 output/
 eda_output_*/
 agent_analysis_*/
 test_results/
+
+# Frontend dependencies and build
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+
+# Backend cache
+backend/__pycache__/
+
+# Temporary files
+temp/
+tmp/
 
 # Docker
 .dockerignore

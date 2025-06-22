@@ -2,13 +2,14 @@ version: '3.8'
 
 services:
   causal-analysis:
-    build: .
+    build: ./backend
     ports:
       - "8000:8000"
     volumes:
-      - ./causal_analysis/config:/app/causal_analysis/config
-      - ./causal_analysis/data:/app/causal_analysis/data
-      - ./sample_data:/app/sample_data
-      - ./examples:/app/examples
+      - ./backend/causal_analysis/config:/app/causal_analysis/config
+      - ./backend/causal_analysis/data:/app/causal_analysis/data
+      - ./data/sample_data:/app/sample_data
+      - ./data/examples:/app/examples
     environment:
       - PYTHONPATH=/app
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
