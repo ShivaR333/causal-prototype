@@ -15,6 +15,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY causal_analysis/ ./causal_analysis/
+COPY sample_data/ ./sample_data/
+COPY examples/ ./examples/
 COPY *.py ./
 
 EXPOSE 8000

@@ -8,5 +8,7 @@ services:
     volumes:
       - ./causal_analysis/config:/app/causal_analysis/config
       - ./causal_analysis/data:/app/causal_analysis/data
+      - ./sample_data:/app/sample_data
+      - ./examples:/app/examples
     environment:
       - PYTHONPATH=/app
