@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # LocalStack for AWS services simulation
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"  # LocalStack Gateway
+      - "4510-4559:4510-4559"  # External service ports
+    environment:
+      - SERVICES=s3,dynamodb,secretsmanager,cognito-idp,apigateway,lambda,sts,iam,logs
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - LAMBDA_EXECUTOR=local
+      - PERSIST_ALL=1
+    volumes:
+      - "localstack_data:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - causal-cloud
+
+  # Step Functions Local
+  stepfunctions-local:
+    image: amazon/aws-stepfunctions-local
+    ports:
+      - "8083:8083"
+    environment:
+      - LAMBDA_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+
+  # DynamoDB Admin UI
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+
+  # WebSocket Gateway Mock
+  websocket-gateway:
+    build:
+      context: ./local-cloud/websocket-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"  # Expose WebSocket gateway for frontend
+    environment:
+      - LAMBDA_ENDPOINT=http://localstack:4566
+      - STEP_FUNCTIONS_ENDPOINT=http://stepfunctions-local:8083
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+      - stepfunctions-local
+
+  # ECS Task Simulator (for EDA)
+  eda-simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"  # Expose API for local development
+    environment:
+      - S3_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - TASK_TYPE=eda
+    volumes:
+      - ./data/sample_data:/app/data/sample_data
+      - ./data/examples:/app/data/examples
+      - ./backend/causal_analysis/config:/app/causal_analysis/config
+      - ./backend/causal_analysis/data:/app/causal_analysis/data
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+
+  # ECS Task Simulator (for Causal Analysis)
+  analysis-simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - S3_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - TASK_TYPE=analysis
+    volumes:
+      - ./data/sample_data:/app/data/sample_data
+      - ./data/examples:/app/data/examples
+      - ./backend/causal_analysis/config:/app/causal_analysis/config
+      - ./backend/causal_analysis/data:/app/causal_analysis/data
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+
+  # Frontend (updated for WebSocket)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8080
+      - NEXT_PUBLIC_COGNITO_ENDPOINT=http://localhost:4566
+      - NEXT_PUBLIC_AWS_REGION=us-east-1
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - causal-cloud
+    depends_on:
+      - websocket-gateway
+
+  # AWS CLI for setup scripts
+  aws-cli:
+    image: amazon/aws-cli
+    entrypoint: /bin/bash
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ENDPOINT_URL=http://localstack:4566
+    volumes:
+      - ./local-cloud/setup-scripts:/scripts
+      - ./data/sample_data:/app/data/sample_data
+      - ./data/examples:/app/data/examples
+    networks:
+      - causal-cloud
+    depends_on:
+      - localstack
+
+networks:
+  causal-cloud:
+    driver: bridge
+
+volumes:
+  localstack_data:

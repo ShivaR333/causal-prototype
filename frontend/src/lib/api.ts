@@ -22,6 +22,18 @@ export interface CausalQueryResponse {
   results?: any
 }
 
+export interface AgentRequest {
+  message: string
+  session_id?: string | null
+}
+
+export interface AgentResponse {
+  response: string
+  session_id: string
+  state: string
+  requires_confirmation: boolean
+}
+
 export class CausalAnalysisAPI {
   private baseURL: string
 
@@ -98,8 +110,90 @@ export class CausalAnalysisAPI {
   }
 }
 
-// Create a singleton instance
+export class AgentAPI {
+  private baseURL: string
+
+  constructor(baseURL: string = API_BASE_URL) {
+    this.baseURL = baseURL
+  }
+
+  async chatWithAgent(request: AgentRequest): Promise<AgentResponse> {
+    try {
+      const response = await fetch(`${this.baseURL}/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Agent chat failed: ${response.statusText}`)
+      }
+
+      return response.json()
+    } catch (error) {
+      console.error('Agent API Error:', error)
+      throw error
+    }
+  }
+
+  async resetSession(sessionId: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseURL}/agent/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Session reset failed: ${response.statusText}`)
+      }
+    } catch (error) {
+      console.error('Agent API Error:', error)
+      throw error
+    }
+  }
+
+  async getSessionStatus(sessionId: string): Promise<any> {
+    try {
+      const response = await fetch(`${this.baseURL}/agent/status/${sessionId}`)
+      
+      if (!response.ok) {
+        throw new Error(`Status check failed: ${response.statusText}`)
+      }
+
+      return response.json()
+    } catch (error) {
+      console.error('Agent API Error:', error)
+      throw error
+    }
+  }
+
+  async checkConnection(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseURL}/`)
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+}
+
+// Create singleton instances
 export const causalAPI = new CausalAnalysisAPI()
+export const agentAPI = new AgentAPI()
+
+// WebSocket utility functions for components that need direct access
+export function sendCausalQueryViaWebSocket(query: CausalQueryRequest): void {
+  const { wsClient } = require('./websocket')
+  if (!wsClient.isAuthenticated()) {
+    throw new Error('WebSocket not authenticated')
+  }
+  wsClient.sendQuery(query, `query-${Date.now()}`)
+}
 
 // Helper function to format API responses for chat
 export function formatCausalResponse(response: CausalQueryResponse): string {
@@ -143,18 +237,36 @@ export function createNaturalLanguageQuery(
   const confoundersMatch = userMessage.match(confoundersRegex)
 
   if (treatmentMatch && outcomeMatch) {
+    let treatmentVar = treatmentMatch[1].toLowerCase()
+    let outcomeVar = outcomeMatch[1].toLowerCase()
+    
+    // Map common terms to actual variable names
+    const variableMapping: { [key: string]: string } = {
+      'discount': 'discount_offer',
+      'sales': 'purchase_amount',
+      'purchase': 'purchase_amount',
+      'amount': 'purchase_amount',
+      'age': 'customer_age',
+      'income': 'customer_income',
+      'browsing': 'browsing_time',
+      'views': 'product_page_views'
+    }
+    
+    treatmentVar = variableMapping[treatmentVar] || treatmentVar
+    outcomeVar = variableMapping[outcomeVar] || outcomeVar
+
     const confounders = confoundersMatch
       ? confoundersMatch[1].split(/,|\sand\s/).map(s => s.trim())
-      : []
+      : ['customer_age', 'customer_income', 'seasonality', 'ad_exposure']
 
     return {
       query: {
         query_type: 'effect_estimation',
-        treatment_variable: treatmentMatch[1],
-        outcome_variable: outcomeMatch[1],
+        treatment_variable: treatmentVar,
+        outcome_variable: outcomeVar,
         confounders
       },
-      dag_file: 'causal_analysis/config/sample_dag.json',
+      dag_file: 'causal_analysis/config/ecommerce_dag.json',
       data_file: defaultDataFile
     }
   }
