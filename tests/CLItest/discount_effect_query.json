@@ -1,0 +1,28 @@
+{
+  "query_type": "effect_estimation",
+  "treatment_variable": "discount_offer",
+  "outcome_variable": "purchase_amount",
+  "confounders": [
+    "customer_age",
+    "customer_income", 
+    "previous_purchase_frequency",
+    "seasonality"
+  ],
+  "treatment_value": 1.0,
+  "description": "Estimate the causal effect of offering a discount on purchase amount in eCommerce sales",
+  "analysis_notes": {
+    "treatment": "discount_offer (binary: 0=no discount, 1=discount offered)",
+    "outcome": "purchase_amount (continuous: total purchase amount)",
+    "confounders_rationale": [
+      "customer_age: affects both likelihood of receiving discount and purchase behavior",
+      "customer_income: influences discount targeting and spending capacity", 
+      "previous_purchase_frequency: determines customer segment and discount eligibility",
+      "seasonality: affects both promotional campaigns and purchase patterns"
+    ],
+    "excluded_variables": {
+      "ad_exposure": "potential mediator - discount offers may influence ad exposure",
+      "browsing_time": "mediator - affected by discount offers", 
+      "product_page_views": "mediator - affected by discount offers"
+    }
+  }
+}

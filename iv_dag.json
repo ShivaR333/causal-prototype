@@ -1,0 +1,50 @@
+{
+  "name": "instrumental_variable_dag",
+  "description": "DAG with instrumental variable",
+  "variables": {
+    "Z": {
+      "name": "instrument",
+      "type": "binary",
+      "description": "Instrumental variable (e.g., randomized encouragement)"
+    },
+    "X": {
+      "name": "confounder",
+      "type": "continuous",
+      "description": "Unobserved confounder"
+    },
+    "T": {
+      "name": "treatment",
+      "type": "binary",
+      "description": "Treatment received"
+    },
+    "Y": {
+      "name": "outcome",
+      "type": "continuous",
+      "description": "Outcome of interest"
+    }
+  },
+  "edges": [
+    {
+      "from": "Z",
+      "to": "T"
+    },
+    {
+      "from": "X",
+      "to": "T"
+    },
+    {
+      "from": "X",
+      "to": "Y"
+    },
+    {
+      "from": "T",
+      "to": "Y"
+    }
+  ],
+  "treatment_variable": "T",
+  "outcome_variable": "Y",
+  "confounders": [
+    "X"
+  ],
+  "instrument": "Z"
+}

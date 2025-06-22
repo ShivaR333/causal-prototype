@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  causal-analysis:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./causal_analysis/config:/app/causal_analysis/config
+      - ./causal_analysis/data:/app/causal_analysis/data
+    environment:
+      - PYTHONPATH=/app

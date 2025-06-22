@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  causal-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: causal-agent
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount output directory for analysis results
+      - ./output:/app/output
+      # Mount logs directory
+      - ./logs:/app/logs
+      # Optional: mount custom data directory
+      - ./custom_data:/app/custom_data:ro
+    ports:
+      # Optional: expose port for API access
+      - "8000:8000"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    
+  # Optional: Add a Jupyter notebook service for analysis
+  notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: causal-agent-notebook
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/app
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8888:8888"
+    command: >
+      bash -c "pip install jupyter &&
+               jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password=''"
+    profiles:
+      - notebook

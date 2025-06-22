@@ -1,0 +1,17 @@
+{
+  "query": {
+    "query_type": "effect_estimation",
+    "treatment_variable": "discount_offer",
+    "outcome_variable": "purchase_amount",
+    "confounders": [
+      "customer_age",
+      "customer_income", 
+      "previous_purchase_frequency",
+      "seasonality"
+    ],
+    "treatment_value": 1.0,
+    "description": "Estimate the causal effect of offering a discount on purchase amount"
+  },
+  "dag_file": "tests/CLItest/eCommerce_sales_dag.json",
+  "data_file": "tests/CLItest/eCommerce_sales.csv"
+}

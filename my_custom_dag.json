@@ -1,0 +1,68 @@
+{
+  "name": "my_custom_dag",
+  "description": "Custom DAG with multiple confounders",
+  "variables": {
+    "age": {
+      "name": "age",
+      "type": "continuous",
+      "description": "Patient age"
+    },
+    "income": {
+      "name": "income",
+      "type": "continuous",
+      "description": "Household income"
+    },
+    "education": {
+      "name": "education",
+      "type": "categorical",
+      "description": "Education level"
+    },
+    "treatment": {
+      "name": "treatment",
+      "type": "binary",
+      "description": "Medical treatment (0/1)"
+    },
+    "outcome": {
+      "name": "outcome",
+      "type": "continuous",
+      "description": "Health outcome score"
+    }
+  },
+  "edges": [
+    {
+      "from": "age",
+      "to": "treatment"
+    },
+    {
+      "from": "age",
+      "to": "outcome"
+    },
+    {
+      "from": "income",
+      "to": "treatment"
+    },
+    {
+      "from": "income",
+      "to": "outcome"
+    },
+    {
+      "from": "education",
+      "to": "treatment"
+    },
+    {
+      "from": "education",
+      "to": "outcome"
+    },
+    {
+      "from": "treatment",
+      "to": "outcome"
+    }
+  ],
+  "treatment_variable": "treatment",
+  "outcome_variable": "outcome",
+  "confounders": [
+    "age",
+    "income",
+    "education"
+  ]
+}
