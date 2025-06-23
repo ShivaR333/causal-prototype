@@ -1,21 +1,11 @@
-interface WebSocketMessage {
-  action: string;
-  sessionId?: string;
-  messageId?: string;
-  payload?: any;
-  error?: any;
-  token?: string;
-}
-
-interface WebSocketCallbacks {
-  onMessage?: (message: WebSocketMessage) => void;
-  onError?: (error: Event) => void;
-  onConnect?: () => void;
-  onDisconnect?: () => void;
-  onAuthSuccess?: (data: { sessionId: string; userId: string }) => void;
-  onPrompt?: (data: { prompt: string; sessionId: string }) => void;
-  onResponse?: (data: { payload: any; sessionId: string }) => void;
-}
+import { 
+  AuthState, 
+  AuthStatus, 
+  WebSocketMessage, 
+  WebSocketCallbacks, 
+  QueuedMessage 
+} from '../types/websocket';
+import { authService } from './auth';
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;
@@ -24,9 +14,20 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectInterval = 1000;
-  private authenticated = false;
+  
+  // Authentication state
+  private authState: AuthState = AuthState.IDLE;
+  private authPromise: Promise<AuthStatus> | null = null;
+  private authResolver: ((value: AuthStatus) => void) | null = null;
+  private authRejecter: ((reason: any) => void) | null = null;
+  
+  // Session data
   private sessionId: string | null = null;
   private userId: string | null = null;
+  
+  // Message queue for pending auth
+  private messageQueue: QueuedMessage[] = [];
+  private isProcessingQueue = false;
 
   constructor(url: string) {
     this.url = url;
@@ -35,11 +36,23 @@ export class WebSocketClient {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.url);
+        this.authState = AuthState.CONNECTING;
+        
+        // Get authentication token for WebSocket connection
+        const token = authService.getIdToken();
+        if (!token) {
+          reject(new Error('Authentication required. Please sign in first.'));
+          return;
+        }
+        
+        // Add token to WebSocket URL as query parameter for AWS API Gateway
+        const urlWithAuth = `${this.url}?token=${encodeURIComponent(token)}`;
+        this.ws = new WebSocket(urlWithAuth);
 
         this.ws.onopen = () => {
-          console.log('WebSocket connected');
+          console.log('WebSocket connected to AWS API Gateway');
           this.reconnectAttempts = 0;
+          this.authState = AuthState.AUTHENTICATED; // Auth handled by API Gateway authorizer
           this.callbacks.onConnect?.();
           resolve();
         };
@@ -55,8 +68,7 @@ export class WebSocketClient {
 
         this.ws.onclose = (event) => {
           console.log('WebSocket disconnected:', event.code, event.reason);
-          this.authenticated = false;
-          this.callbacks.onDisconnect?.();
+          this.handleDisconnect();
           
           if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnect();
@@ -74,24 +86,25 @@ export class WebSocketClient {
     });
   }
 
+  authenticate(token?: string): Promise<AuthStatus> {
+    // For AWS API Gateway WebSocket, authentication is handled during connection
+    // The Lambda authorizer validates the token before allowing the connection
+    
+    if (this.authState === AuthState.AUTHENTICATED && this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve(this.getAuthStatus());
+    }
+    
+    // If not connected or not authenticated, need to reconnect with fresh token
+    return this.connect().then(() => this.getAuthStatus());
+  }
+
   private handleMessage(message: WebSocketMessage) {
     console.log('Received WebSocket message:', message);
 
     switch (message.action) {
       case 'connection':
-        // Connection acknowledgment
-        break;
-      
-      case 'auth_success':
-        this.authenticated = true;
-        this.sessionId = message.sessionId || null;
-        this.userId = message.payload?.userId || null;
-        this.callbacks.onAuthSuccess?.(message.payload);
-        break;
-      
-      case 'auth_error':
-        this.authenticated = false;
-        console.error('Authentication failed:', message.error);
+        // Connection acknowledgment from AWS API Gateway
+        this.handleConnectionAck(message);
         break;
       
       case 'prompt':
@@ -123,46 +136,96 @@ export class WebSocketClient {
     this.callbacks.onMessage?.(message);
   }
 
-  private reconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
+  private handleConnectionAck(message: WebSocketMessage) {
+    // Extract session info from connection acknowledgment
+    this.sessionId = message.sessionId || message.payload?.sessionId || null;
+    this.userId = message.userId || message.payload?.userId || null;
+    
+    const authStatus = this.getAuthStatus();
+    
+    // Resolve auth promise if exists
+    if (this.authResolver) {
+      this.authResolver(authStatus);
+      this.authResolver = null;
+      this.authRejecter = null;
+    }
+    
+    // Call success callback
+    this.callbacks.onAuthSuccess?.(message.payload);
+    
+    // Process queued messages
+    this.processMessageQueue();
+  }
+
+  private handleAuthError(error: string) {
+    this.authState = AuthState.ERROR;
+    
+    // Reject auth promise
+    if (this.authRejecter) {
+      this.authRejecter(new Error(error));
+      this.authResolver = null;
+      this.authRejecter = null;
+    }
+    
+    // Clear auth data
+    this.sessionId = null;
+    this.userId = null;
+    
+    // Call error callback
+    this.callbacks.onAuthError?.(error);
+    
+    // Clear message queue
+    this.clearMessageQueue(new Error(error));
+  }
+
+  private handleDisconnect() {
+    this.authState = AuthState.DISCONNECTED;
+    this.sessionId = null;
+    this.userId = null;
+    
+    // Reject pending auth
+    if (this.authRejecter) {
+      this.authRejecter(new Error('Disconnected during authentication'));
+      this.authResolver = null;
+      this.authRejecter = null;
+    }
+    
+    // Clear message queue
+    this.clearMessageQueue(new Error('WebSocket disconnected'));
+    
+    this.callbacks.onDisconnect?.();
+  }
+
+  private async processMessageQueue() {
+    if (this.isProcessingQueue || this.messageQueue.length === 0) {
       return;
     }
 
-    this.reconnectAttempts++;
-    console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
-    setTimeout(() => {
-      this.connect().catch((error) => {
-        console.error('Reconnection failed:', error);
-      });
-    }, this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1));
+    this.isProcessingQueue = true;
+    
+    while (this.messageQueue.length > 0 && this.authState === AuthState.AUTHENTICATED) {
+      const queued = this.messageQueue.shift();
+      if (queued) {
+        try {
+          this.send(queued.message);
+          queued.resolve?.();
+        } catch (error) {
+          queued.reject?.(error);
+        }
+      }
+    }
+    
+    this.isProcessingQueue = false;
   }
 
-  authenticate(token?: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket not connected');
+  private clearMessageQueue(error: Error) {
+    while (this.messageQueue.length > 0) {
+      const queued = this.messageQueue.shift();
+      queued?.reject?.(error);
     }
-
-    // For local development, use a simple bypass token
-    let authToken = token;
-    if (!authToken) {
-      authToken = 'local-dev-token-bypass';
-    }
-
-    const authMessage: WebSocketMessage = {
-      action: 'auth',
-      token: authToken
-    };
-
-    this.send(authMessage);
   }
 
-  sendQuery(query: any, messageId?: string): void {
-    if (!this.authenticated) {
-      throw new Error('Not authenticated');
-    }
-
+  sendQuery(query: any, messageId?: string): Promise<void> {
     const message: WebSocketMessage = {
       action: 'query',
       sessionId: this.sessionId || undefined,
@@ -170,21 +233,50 @@ export class WebSocketClient {
       payload: query
     };
 
-    this.send(message);
-  }
-
-  sendResponse(response: string, sessionId: string): void {
-    if (!this.authenticated) {
-      throw new Error('Not authenticated');
+    // If authenticated, send immediately
+    if (this.authState === AuthState.AUTHENTICATED) {
+      return this.sendWithRetry(message);
     }
 
+    // If authenticating, queue the message
+    if (this.authState === AuthState.AUTHENTICATING) {
+      return new Promise((resolve, reject) => {
+        this.messageQueue.push({
+          message,
+          timestamp: Date.now(),
+          resolve,
+          reject
+        });
+      });
+    }
+
+    // Otherwise, reject
+    return Promise.reject(new Error(`Cannot send query in state: ${this.authState}`));
+  }
+
+  private sendWithRetry(message: WebSocketMessage): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.send(message);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  sendResponse(response: string, sessionId: string): Promise<void> {
     const message: WebSocketMessage = {
       action: 'response',
       sessionId,
       payload: { response }
     };
 
-    this.send(message);
+    if (this.authState !== AuthState.AUTHENTICATED) {
+      return Promise.reject(new Error('Not authenticated'));
+    }
+
+    return this.sendWithRetry(message);
   }
 
   ping(): void {
@@ -201,6 +293,22 @@ export class WebSocketClient {
     this.ws.send(JSON.stringify(message));
   }
 
+  private reconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    setTimeout(() => {
+      this.connect().catch((error) => {
+        console.error('Reconnection failed:', error);
+      });
+    }, this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1));
+  }
+
   setCallbacks(callbacks: Partial<WebSocketCallbacks>): void {
     this.callbacks = { ...this.callbacks, ...callbacks };
   }
@@ -210,9 +318,7 @@ export class WebSocketClient {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
-    this.authenticated = false;
-    this.sessionId = null;
-    this.userId = null;
+    this.handleDisconnect();
   }
 
   isConnected(): boolean {
@@ -220,7 +326,20 @@ export class WebSocketClient {
   }
 
   isAuthenticated(): boolean {
-    return this.authenticated;
+    return this.authState === AuthState.AUTHENTICATED;
+  }
+
+  getAuthState(): AuthState {
+    return this.authState;
+  }
+
+  getAuthStatus(): AuthStatus {
+    return {
+      state: this.authState,
+      sessionId: this.sessionId,
+      userId: this.userId,
+      error: this.authState === AuthState.ERROR ? 'Authentication failed' : null
+    };
   }
 
   getSessionId(): string | null {
@@ -232,6 +351,9 @@ export class WebSocketClient {
   }
 }
 
-// Create singleton instance
-const WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
+// Create singleton instance - will use AWS API Gateway WebSocket endpoint
+const WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
+if (!WEBSOCKET_URL) {
+  console.error('NEXT_PUBLIC_WEBSOCKET_URL environment variable is required. This should be your AWS API Gateway WebSocket URL (wss://...)');
+}
 export const wsClient = new WebSocketClient(WEBSOCKET_URL);

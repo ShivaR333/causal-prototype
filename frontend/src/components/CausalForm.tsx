@@ -12,9 +12,9 @@ export function CausalForm({ onSubmit, disabled }: CausalFormProps) {
     query_type: 'effect_estimation',
     treatment_variable: '',
     outcome_variable: '',
-    confounders: '',
+    confounders: 'customer_age, customer_income, seasonality, ad_exposure',
     data_file: 'sample_data/eCommerce_sales.csv',
-    dag_file: 'causal_analysis/config/sample_dag.json'
+    dag_file: 'causal_analysis/config/ecommerce_dag.json'
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -64,7 +64,7 @@ export function CausalForm({ onSubmit, disabled }: CausalFormProps) {
           type="text"
           value={formData.treatment_variable}
           onChange={(e) => handleChange('treatment_variable', e.target.value)}
-          placeholder="e.g., discount"
+          placeholder="e.g., discount_offer"
           className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={disabled}
           required
@@ -79,7 +79,7 @@ export function CausalForm({ onSubmit, disabled }: CausalFormProps) {
           type="text"
           value={formData.outcome_variable}
           onChange={(e) => handleChange('outcome_variable', e.target.value)}
-          placeholder="e.g., sales"
+          placeholder="e.g., purchase_amount"
           className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={disabled}
           required
@@ -94,7 +94,7 @@ export function CausalForm({ onSubmit, disabled }: CausalFormProps) {
           type="text"
           value={formData.confounders}
           onChange={(e) => handleChange('confounders', e.target.value)}
-          placeholder="e.g., customer_segment, season"
+          placeholder="e.g., customer_age, customer_income, seasonality"
           className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={disabled}
         />
@@ -127,9 +127,9 @@ export function CausalForm({ onSubmit, disabled }: CausalFormProps) {
 
       <div className="text-xs text-gray-500 mt-2">
         <p><strong>Examples:</strong></p>
-        <p>• Treatment: discount, Outcome: sales</p>
-        <p>• Treatment: education, Outcome: income</p>
-        <p>• Confounders: age, gender, location</p>
+        <p>• Treatment: discount_offer, Outcome: purchase_amount</p>
+        <p>• Treatment: ad_exposure, Outcome: browsing_time</p>
+        <p>• Confounders: customer_age, customer_income, seasonality</p>
       </div>
     </form>
   )

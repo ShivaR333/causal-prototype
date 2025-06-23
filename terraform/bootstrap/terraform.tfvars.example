@@ -1,0 +1,10 @@
+# Bootstrap configuration for Terraform backend
+# Copy this to terraform.tfvars and customize as needed
+
+project_name = "causal-analysis"
+environment  = "dev"
+aws_region   = "me-south-1"
+
+# Make these globally unique by including account ID or random suffix
+terraform_state_bucket = "causal-analysis-dev-terraform-state-123456789012"
+terraform_lock_table   = "causal-analysis-dev-terraform-lock"

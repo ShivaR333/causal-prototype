@@ -228,6 +228,8 @@ export function createNaturalLanguageQuery(
   defaultDataFile: string = 'sample_data/eCommerce_sales.csv'
 ): CausalQueryRequest | null {
   // Simple pattern matching for natural language queries
+
+  console.log('Creating natural language query for:', userMessage)
   const treatmentRegex = /effect of (\w+)/i
   const outcomeRegex = /on (\w+)/i
   const confoundersRegex = /controlling for (.+)/i

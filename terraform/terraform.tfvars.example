@@ -1,0 +1,16 @@
+# Copy this file to terraform.tfvars and fill in your actual values
+
+# Project Configuration
+project_name = "causal-analysis"
+environment  = "dev"
+aws_region   = "me-south-1"
+
+# OpenAI Configuration
+# Replace with your actual OpenAI API key
+openai_api_key = "sk-your-actual-openai-api-key-here"
+openai_model   = "gpt-3.5-turbo"
+
+# Cognito OAuth URLs (REQUIRED - update for your production environment)
+# DO NOT use localhost URLs in production
+callback_urls = ["https://your-domain.com", "https://app.your-domain.com"]
+logout_urls   = ["https://your-domain.com", "https://app.your-domain.com"]

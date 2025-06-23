@@ -88,7 +88,11 @@ class CausalAnalysisAgent:
             openai_api_key: OpenAI API key. If None, will use OPENAI_API_KEY environment variable
             model: OpenAI model to use
         """
-        self.client = OpenAI(api_key=openai_api_key or os.getenv("OPENAI_API_KEY"))
+        api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+        
+        self.client = OpenAI(api_key=api_key)
         self.model = self._get_available_model(model)
         
         # Workflow state
@@ -136,24 +140,32 @@ class CausalAnalysisAgent:
     def _load_dag_library(self) -> Dict[str, str]:
         """Load available DAG files from examples directory."""
         dag_library = {}
-        examples_dir = Path("examples")
         
-        if examples_dir.exists():
-            for dag_file in examples_dir.glob("*.json"):
-                try:
-                    with open(dag_file, 'r') as f:
-                        dag_data = json.load(f)
-                    
-                    # Create a description based on DAG content
-                    description = dag_data.get("description", "")
-                    if not description:
-                        vars_list = list(dag_data.get("variables", {}).keys())
-                        description = f"DAG with variables: {', '.join(vars_list)}"
-                    
-                    dag_library[str(dag_file)] = description
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to load DAG file {dag_file}: {e}")
+        # Check multiple possible DAG directories
+        dag_dirs = [
+            Path("data/examples"),
+            Path("examples"), 
+            Path("causal_analysis/config"),
+            Path("backend/causal_analysis/config")
+        ]
+        
+        for dag_dir in dag_dirs:
+            if dag_dir.exists():
+                for dag_file in dag_dir.glob("*.json"):
+                    try:
+                        with open(dag_file, 'r') as f:
+                            dag_data = json.load(f)
+                        
+                        # Create a description based on DAG content
+                        description = dag_data.get("description", "")
+                        if not description:
+                            vars_list = list(dag_data.get("variables", {}).keys())
+                            description = f"DAG with variables: {', '.join(vars_list)}"
+                        
+                        dag_library[str(dag_file)] = description
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to load DAG file {dag_file}: {e}")
         
         return dag_library
     
@@ -162,7 +174,13 @@ class CausalAnalysisAgent:
         data_library = {}
         
         # Check multiple possible data directories
-        data_dirs = [Path("sample_data"), Path("examples"), Path(".")]
+        data_dirs = [
+            Path("data/sample_data"),
+            Path("sample_data"), 
+            Path("data/examples"), 
+            Path("examples"), 
+            Path(".")
+        ]
         
         for data_dir in data_dirs:
             if data_dir.exists():

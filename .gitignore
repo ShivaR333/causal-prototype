@@ -42,7 +42,8 @@ eda_output_*/
 agent_analysis_*/
 test_results/
 
-# Frontend dependencies and build
+# Node.js dependencies and build
+node_modules/
 frontend/node_modules/
 frontend/.next/
 frontend/out/

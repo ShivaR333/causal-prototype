@@ -1,0 +1,70 @@
+{
+  "name": "ecommerce_sales_dag",
+  "description": "DAG for eCommerce discount effect analysis",
+  "variables": {
+    "customer_age": {
+      "name": "customer_age",
+      "type": "continuous",
+      "description": "Customer age (normalized)"
+    },
+    "customer_income": {
+      "name": "customer_income", 
+      "type": "continuous",
+      "description": "Customer income (normalized)"
+    },
+    "previous_purchase_frequency": {
+      "name": "previous_purchase_frequency",
+      "type": "continuous", 
+      "description": "How frequently customer has purchased before"
+    },
+    "seasonality": {
+      "name": "seasonality",
+      "type": "categorical",
+      "description": "Seasonal factor (0, 1, 2)"
+    },
+    "ad_exposure": {
+      "name": "ad_exposure",
+      "type": "binary",
+      "description": "Whether customer was exposed to ads (0/1)"
+    },
+    "discount_offer": {
+      "name": "discount_offer", 
+      "type": "binary",
+      "description": "Whether customer received discount offer (0/1)"
+    },
+    "browsing_time": {
+      "name": "browsing_time",
+      "type": "continuous",
+      "description": "Time spent browsing website"
+    },
+    "product_page_views": {
+      "name": "product_page_views",
+      "type": "continuous", 
+      "description": "Number of product pages viewed"
+    },
+    "purchase_amount": {
+      "name": "purchase_amount",
+      "type": "continuous",
+      "description": "Total purchase amount"
+    }
+  },
+  "edges": [
+    {"from": "customer_age", "to": "discount_offer"},
+    {"from": "customer_income", "to": "discount_offer"},
+    {"from": "customer_age", "to": "purchase_amount"},
+    {"from": "customer_income", "to": "purchase_amount"},
+    {"from": "previous_purchase_frequency", "to": "purchase_amount"},
+    {"from": "seasonality", "to": "discount_offer"},
+    {"from": "seasonality", "to": "purchase_amount"},
+    {"from": "ad_exposure", "to": "discount_offer"},
+    {"from": "ad_exposure", "to": "purchase_amount"},
+    {"from": "discount_offer", "to": "browsing_time"},
+    {"from": "discount_offer", "to": "product_page_views"},
+    {"from": "discount_offer", "to": "purchase_amount"},
+    {"from": "browsing_time", "to": "purchase_amount"},
+    {"from": "product_page_views", "to": "purchase_amount"}
+  ],
+  "treatment_variable": "discount_offer",
+  "outcome_variable": "purchase_amount",
+  "confounders": ["customer_age", "customer_income", "previous_purchase_frequency", "seasonality", "ad_exposure"]
+}

@@ -1,187 +1,280 @@
-interface CognitoConfig {
-  userPoolId: string;
-  clientId: string;
-  region: string;
-  endpoint?: string;
+import { CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserSession } from 'amazon-cognito-identity-js';
+
+// Cognito configuration
+const poolData = {
+  UserPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID || '',
+  ClientId: process.env.NEXT_PUBLIC_USER_POOL_CLIENT_ID || ''
+};
+
+if (!poolData.UserPoolId || !poolData.ClientId) {
+  console.error('Cognito configuration missing. Please set NEXT_PUBLIC_USER_POOL_ID and NEXT_PUBLIC_USER_POOL_CLIENT_ID');
 }
 
-interface AuthUser {
-  userId: string;
+const userPool = new CognitoUserPool(poolData);
+
+export interface AuthUser {
+  username: string;
   email: string;
   accessToken: string;
   idToken: string;
   refreshToken: string;
+  tokenExpiration: number;
 }
 
-interface LoginCredentials {
-  email: string;
-  password: string;
+export interface SignUpResult {
+  success: boolean;
+  message: string;
+  needsConfirmation?: boolean;
 }
 
-interface SignupData {
-  email: string;
-  password: string;
-  name?: string;
+export interface SignInResult {
+  success: boolean;
+  user?: AuthUser;
+  message: string;
+  needsNewPassword?: boolean;
 }
 
-export class AuthService {
-  private config: CognitoConfig;
+class AuthService {
   private currentUser: AuthUser | null = null;
+  private refreshTimer: NodeJS.Timeout | null = null;
 
-  constructor(config: CognitoConfig) {
-    this.config = config;
-    this.loadUserFromStorage();
+  constructor() {
+    // Check for existing session on initialization
+    this.checkExistingSession();
   }
 
-  private async makeRequest(endpoint: string, body: any) {
-    const baseUrl = this.config.endpoint || `https://cognito-idp.${this.config.region}.amazonaws.com`;
-    
-    const response = await fetch(`${baseUrl}/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-amz-json-1.1',
-        'X-Amz-Target': `AWSCognitoIdentityProviderService.${endpoint}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Authentication request failed');
-    }
-
-    return response.json();
-  }
-
-  async login(credentials: LoginCredentials): Promise<AuthUser> {
-    try {
-      // For local development, use simplified auth
-      if (this.config.endpoint?.includes('localhost') || process.env.NODE_ENV === 'development') {
-        return this.mockLogin(credentials);
-      }
-
-      // Real Cognito authentication
-      const response = await this.makeRequest('InitiateAuth', {
-        AuthFlow: 'USER_PASSWORD_AUTH',
-        ClientId: this.config.clientId,
-        AuthParameters: {
-          USERNAME: credentials.email,
-          PASSWORD: credentials.password,
-        },
+  private checkExistingSession(): void {
+    const cognitoUser = userPool.getCurrentUser();
+    if (cognitoUser) {
+      cognitoUser.getSession((err: any, session: CognitoUserSession) => {
+        if (!err && session.isValid()) {
+          this.setCurrentUser(cognitoUser, session);
+        }
       });
-
-      const user: AuthUser = {
-        userId: response.AuthenticationResult.AccessToken.split('.')[1], // Simplified user ID
-        email: credentials.email,
-        accessToken: response.AuthenticationResult.AccessToken,
-        idToken: response.AuthenticationResult.IdToken,
-        refreshToken: response.AuthenticationResult.RefreshToken,
-      };
-
-      this.currentUser = user;
-      this.saveUserToStorage(user);
-      
-      return user;
-    } catch (error) {
-      console.error('Login failed:', error);
-      throw error;
     }
   }
 
-  async signup(data: SignupData): Promise<void> {
-    try {
-      // For local development, just simulate success
-      if (this.config.endpoint?.includes('localhost') || process.env.NODE_ENV === 'development') {
-        console.log('Mock signup for:', data.email);
-        return;
-      }
+  private setCurrentUser(cognitoUser: CognitoUser, session: CognitoUserSession): void {
+    const accessToken = session.getAccessToken();
+    const idToken = session.getIdToken();
+    const refreshToken = session.getRefreshToken();
 
-      await this.makeRequest('SignUp', {
-        ClientId: this.config.clientId,
-        Username: data.email,
-        Password: data.password,
-        UserAttributes: [
-          {
-            Name: 'email',
-            Value: data.email,
-          },
-          ...(data.name ? [{
-            Name: 'name',
-            Value: data.name,
-          }] : []),
-        ],
-      });
-    } catch (error) {
-      console.error('Signup failed:', error);
-      throw error;
-    }
-  }
-
-  async logout(): Promise<void> {
-    try {
-      if (this.currentUser && !this.config.endpoint?.includes('localhost')) {
-        await this.makeRequest('GlobalSignOut', {
-          AccessToken: this.currentUser.accessToken,
-        });
-      }
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      this.currentUser = null;
-      this.clearUserFromStorage();
-    }
-  }
-
-  async refreshTokens(): Promise<AuthUser> {
-    if (!this.currentUser?.refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    try {
-      // For local development, return current user
-      if (this.config.endpoint?.includes('localhost') || process.env.NODE_ENV === 'development') {
-        return this.currentUser;
-      }
-
-      const response = await this.makeRequest('InitiateAuth', {
-        AuthFlow: 'REFRESH_TOKEN_AUTH',
-        ClientId: this.config.clientId,
-        AuthParameters: {
-          REFRESH_TOKEN: this.currentUser.refreshToken,
-        },
-      });
-
-      const updatedUser: AuthUser = {
-        ...this.currentUser,
-        accessToken: response.AuthenticationResult.AccessToken,
-        idToken: response.AuthenticationResult.IdToken,
-      };
-
-      this.currentUser = updatedUser;
-      this.saveUserToStorage(updatedUser);
-      
-      return updatedUser;
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      this.logout();
-      throw error;
-    }
-  }
-
-  private mockLogin(credentials: LoginCredentials): AuthUser {
-    // Mock authentication for local development
-    const mockUser: AuthUser = {
-      userId: `local-${credentials.email}`,
-      email: credentials.email,
-      accessToken: `mock-access-token-${Date.now()}`,
-      idToken: `mock-id-token-${Date.now()}`,
-      refreshToken: `mock-refresh-token-${Date.now()}`,
+    this.currentUser = {
+      username: cognitoUser.getUsername(),
+      email: idToken.payload.email || '',
+      accessToken: accessToken.getJwtToken(),
+      idToken: idToken.getJwtToken(),
+      refreshToken: refreshToken.getToken(),
+      tokenExpiration: accessToken.payload.exp * 1000 // Convert to milliseconds
     };
 
-    this.currentUser = mockUser;
-    this.saveUserToStorage(mockUser);
+    // Set up auto-refresh
+    this.setupTokenRefresh();
+  }
+
+  private setupTokenRefresh(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
+
+    if (this.currentUser) {
+      const timeUntilRefresh = this.currentUser.tokenExpiration - Date.now() - (5 * 60 * 1000); // Refresh 5 mins before expiry
+      
+      if (timeUntilRefresh > 0) {
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTokens();
+        }, timeUntilRefresh);
+      }
+    }
+  }
+
+  private async refreshTokens(): Promise<void> {
+    const cognitoUser = userPool.getCurrentUser();
+    if (!cognitoUser) return;
+
+    return new Promise((resolve, reject) => {
+      cognitoUser.getSession((err: any, session: CognitoUserSession) => {
+        if (err) {
+          console.error('Token refresh failed:', err);
+          this.signOut();
+          reject(err);
+          return;
+        }
+
+        if (session.isValid()) {
+          this.setCurrentUser(cognitoUser, session);
+          resolve();
+        } else {
+          this.signOut();
+          reject(new Error('Session is no longer valid'));
+        }
+      });
+    });
+  }
+
+  async signUp(email: string, password: string, username?: string): Promise<SignUpResult> {
+    return new Promise((resolve) => {
+      const attributeList = [
+        {
+          Name: 'email',
+          Value: email
+        }
+      ];
+
+      userPool.signUp(
+        username || email,
+        password,
+        attributeList,
+        [],
+        (err, result) => {
+          if (err) {
+            console.error('Sign up error:', err);
+            resolve({
+              success: false,
+              message: err.message || 'Sign up failed'
+            });
+            return;
+          }
+
+          resolve({
+            success: true,
+            message: 'Sign up successful',
+            needsConfirmation: !result?.user.isSignedUp()
+          });
+        }
+      );
+    });
+  }
+
+  async confirmSignUp(username: string, code: string): Promise<{ success: boolean; message: string }> {
+    return new Promise((resolve) => {
+      const cognitoUser = new CognitoUser({
+        Username: username,
+        Pool: userPool
+      });
+
+      cognitoUser.confirmRegistration(code, true, (err) => {
+        if (err) {
+          console.error('Confirmation error:', err);
+          resolve({
+            success: false,
+            message: err.message || 'Confirmation failed'
+          });
+          return;
+        }
+
+        resolve({
+          success: true,
+          message: 'Account confirmed successfully'
+        });
+      });
+    });
+  }
+
+  async signIn(username: string, password: string): Promise<SignInResult> {
+    return new Promise((resolve) => {
+      const authenticationDetails = new AuthenticationDetails({
+        Username: username,
+        Password: password
+      });
+
+      const cognitoUser = new CognitoUser({
+        Username: username,
+        Pool: userPool
+      });
+
+      cognitoUser.authenticateUser(authenticationDetails, {
+        onSuccess: (session: CognitoUserSession) => {
+          this.setCurrentUser(cognitoUser, session);
+          
+          resolve({
+            success: true,
+            user: this.currentUser!,
+            message: 'Sign in successful'
+          });
+        },
+        
+        onFailure: (err) => {
+          console.error('Sign in error:', err);
+          resolve({
+            success: false,
+            message: err.message || 'Sign in failed'
+          });
+        },
+
+        newPasswordRequired: (userAttributes, requiredAttributes) => {
+          resolve({
+            success: false,
+            message: 'New password required',
+            needsNewPassword: true
+          });
+        }
+      });
+    });
+  }
+
+  async signOut(): Promise<void> {
+    const cognitoUser = userPool.getCurrentUser();
+    if (cognitoUser) {
+      cognitoUser.signOut();
+    }
     
-    return mockUser;
+    this.currentUser = null;
+    
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  async forgotPassword(username: string): Promise<{ success: boolean; message: string }> {
+    return new Promise((resolve) => {
+      const cognitoUser = new CognitoUser({
+        Username: username,
+        Pool: userPool
+      });
+
+      cognitoUser.forgotPassword({
+        onSuccess: () => {
+          resolve({
+            success: true,
+            message: 'Password reset code sent to your email'
+          });
+        },
+        onFailure: (err) => {
+          console.error('Forgot password error:', err);
+          resolve({
+            success: false,
+            message: err.message || 'Failed to send reset code'
+          });
+        }
+      });
+    });
+  }
+
+  async resetPassword(username: string, code: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return new Promise((resolve) => {
+      const cognitoUser = new CognitoUser({
+        Username: username,
+        Pool: userPool
+      });
+
+      cognitoUser.confirmPassword(code, newPassword, {
+        onSuccess: () => {
+          resolve({
+            success: true,
+            message: 'Password reset successful'
+          });
+        },
+        onFailure: (err) => {
+          console.error('Reset password error:', err);
+          resolve({
+            success: false,
+            message: err.message || 'Password reset failed'
+          });
+        }
+      });
+    });
   }
 
   getCurrentUser(): AuthUser | null {
@@ -189,82 +282,23 @@ export class AuthService {
   }
 
   isAuthenticated(): boolean {
-    return this.currentUser !== null;
+    return this.currentUser !== null && this.currentUser.tokenExpiration > Date.now();
   }
 
   getAccessToken(): string | null {
-    return this.currentUser?.accessToken || null;
-  }
-
-  private saveUserToStorage(user: AuthUser): void {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_user', JSON.stringify(user));
+    if (this.isAuthenticated()) {
+      return this.currentUser!.accessToken;
     }
+    return null;
   }
 
-  private loadUserFromStorage(): void {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('auth_user');
-      if (stored) {
-        try {
-          this.currentUser = JSON.parse(stored);
-        } catch (error) {
-          console.error('Failed to parse stored user:', error);
-          this.clearUserFromStorage();
-        }
-      }
+  getIdToken(): string | null {
+    if (this.isAuthenticated()) {
+      return this.currentUser!.idToken;
     }
-  }
-
-  private clearUserFromStorage(): void {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_user');
-    }
+    return null;
   }
 }
 
-// Initialize auth service
-const authConfig: CognitoConfig = {
-  userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || 'local-pool',
-  clientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || 'local-client',
-  region: process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-  endpoint: process.env.NEXT_PUBLIC_COGNITO_ENDPOINT || 'http://localhost:4566',
-};
-
-export const authService = new AuthService(authConfig);
-
-// JWT token generation for local development WebSocket authentication
-function base64UrlEncode(str: string): string {
-  return btoa(str)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-}
-
-export function generateLocalDevToken(): string {
-  const header = {
-    typ: 'JWT',
-    alg: 'HS256'
-  };
-  
-  const payload = {
-    userId: 'local-user',
-    email: 'user@localhost',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
-  };
-  
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  
-  // For local development, create a simple token that the WebSocket gateway can verify
-  // This should match the secret in LocalStack: 'local-dev-secret-key-12345'
-  const signature = base64UrlEncode(`signature-${encodedHeader}-${encodedPayload}`);
-  
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
-}
-
-export function isLocalDevelopment(): boolean {
-  return process.env.NODE_ENV === 'development' || 
-         process.env.NEXT_PUBLIC_API_URL?.includes('localhost');
-}
+// Export singleton instance
+export const authService = new AuthService();

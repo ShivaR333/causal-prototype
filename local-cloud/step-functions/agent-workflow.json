@@ -1,0 +1,226 @@
+{
+  "Comment": "Causal Analysis Agent REACT Loop Workflow",
+  "StartAt": "ParseInitialQuery",
+  "States": {
+    "ParseInitialQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-parse-initial-query",
+      "ResultPath": "$.parsedQuery",
+      "Next": "InvokeLLM",
+      "Retry": [{
+        "ErrorEquals": ["States.TaskFailed"],
+        "IntervalSeconds": 2,
+        "MaxAttempts": 3,
+        "BackoffRate": 2
+      }],
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "InvokeLLM": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-invoke-llm",
+      "ResultPath": "$.llmResponse",
+      "Next": "CheckResponse",
+      "Retry": [{
+        "ErrorEquals": ["States.TaskFailed"],
+        "IntervalSeconds": 5,
+        "MaxAttempts": 2,
+        "BackoffRate": 2
+      }],
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "CheckResponse": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.llmResponse.type",
+          "StringEquals": "tool_call",
+          "Next": "DispatchTool"
+        },
+        {
+          "Variable": "$.llmResponse.type",
+          "StringEquals": "need_input",
+          "Next": "SendPrompt"
+        },
+        {
+          "Variable": "$.llmResponse.type",
+          "StringEquals": "final_answer",
+          "Next": "HandleFinish"
+        }
+      ],
+      "Default": "HandleError"
+    },
+    "DispatchTool": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-dispatch-tool",
+      "ResultPath": "$.toolSelection",
+      "Next": "RouteToToolExecution",
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "RouteToToolExecution": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.toolSelection.tool",
+          "StringEquals": "eda_analysis",
+          "Next": "RunEDATask"
+        },
+        {
+          "Variable": "$.toolSelection.tool",
+          "StringEquals": "causal_analysis",
+          "Next": "RunCausalAnalysisTask"
+        },
+        {
+          "Variable": "$.toolSelection.tool",
+          "StringEquals": "data_query",
+          "Next": "ExecuteDataQuery"
+        }
+      ],
+      "Default": "HandleError"
+    },
+    "RunEDATask": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "TaskDefinition": "causal-analysis-dev-eda-task",
+        "Cluster": "causal-analysis-dev-cluster",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets.$": "$.networkConfig.subnets",
+            "SecurityGroups.$": "$.networkConfig.securityGroups",
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [{
+            "Name": "eda-container",
+            "Environment": [
+              {
+                "Name": "SESSION_ID",
+                "Value.$": "$.sessionId"
+              },
+              {
+                "Name": "S3_INPUT_PATH",
+                "Value.$": "$.toolSelection.parameters.inputPath"
+              },
+              {
+                "Name": "S3_OUTPUT_PATH",
+                "Value.$": "$.toolSelection.parameters.outputPath"
+              }
+            ]
+          }]
+        }
+      },
+      "ResultPath": "$.toolOutput",
+      "Next": "AppendToolOutput",
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "RunCausalAnalysisTask": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "TaskDefinition": "causal-analysis-dev-analysis-task",
+        "Cluster": "causal-analysis-dev-cluster",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets.$": "$.networkConfig.subnets",
+            "SecurityGroups.$": "$.networkConfig.securityGroups",
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [{
+            "Name": "analysis-container",
+            "Environment": [
+              {
+                "Name": "SESSION_ID",
+                "Value.$": "$.sessionId"
+              },
+              {
+                "Name": "ANALYSIS_CONFIG",
+                "Value.$": "$.toolSelection.parameters"
+              }
+            ]
+          }]
+        }
+      },
+      "ResultPath": "$.toolOutput",
+      "Next": "AppendToolOutput",
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "ExecuteDataQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-data-query",
+      "ResultPath": "$.toolOutput",
+      "Next": "AppendToolOutput",
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "AppendToolOutput": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-append-tool-output",
+      "ResultPath": "$.context",
+      "Next": "InvokeLLM",
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "SendPrompt": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "causal-analysis-dev-send-prompt",
+        "Payload": {
+          "sessionId.$": "$.sessionId",
+          "prompt.$": "$.llmResponse.prompt",
+          "taskToken.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.userInput",
+      "Next": "InvokeLLM",
+      "TimeoutSeconds": 300,
+      "Catch": [{
+        "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
+        "Next": "HandleTimeout"
+      }]
+    },
+    "HandleFinish": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-handle-finish",
+      "End": true,
+      "Catch": [{
+        "ErrorEquals": ["States.ALL"],
+        "Next": "HandleError"
+      }]
+    },
+    "HandleError": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-handle-error",
+      "End": true
+    },
+    "HandleTimeout": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-central-1:000000000000:function:causal-analysis-dev-handle-timeout",
+      "End": true
+    }
+  }
+}

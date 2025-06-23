@@ -65,8 +65,8 @@ def _handle_effect_estimation(query_json: dict, causal_model: CausalModel) -> di
         # Identify causal effect
         identified_estimand = causal_model.identify_effect()
         
-        # Estimate effect using multiple methods
-        methods = ["backdoor.linear_regression", "backdoor.propensity_score_matching"]
+        # Estimate effect using multiple methods compatible with DoWhy 0.12+
+        methods = ["backdoor.linear_regression", "backdoor.propensity_score_stratification"]
         estimates = []
         
         for method in methods:
@@ -75,12 +75,18 @@ def _handle_effect_estimation(query_json: dict, causal_model: CausalModel) -> di
                     identified_estimand,
                     method_name=method
                 )
+                # Handle different DoWhy versions - estimate might be a number or object
+                if hasattr(estimate, 'value'):
+                    estimate_value = float(estimate.value)
+                else:
+                    estimate_value = float(estimate)
+                
                 estimates.append({
                     "method": method,
-                    "estimate": float(estimate.value),
+                    "estimate": estimate_value,
                     "confidence_interval": [
-                        float(estimate.value - 1.96 * estimate.value * 0.1),
-                        float(estimate.value + 1.96 * estimate.value * 0.1)
+                        float(estimate_value - 1.96 * abs(estimate_value) * 0.1),
+                        float(estimate_value + 1.96 * abs(estimate_value) * 0.1)
                     ]
                 })
             except Exception as method_error:

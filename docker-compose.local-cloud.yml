@@ -50,21 +50,7 @@ services:
     depends_on:
       - localstack
 
-  # WebSocket Gateway Mock
-  websocket-gateway:
-    build:
-      context: ./local-cloud/websocket-gateway
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"  # Expose WebSocket gateway for frontend
-    environment:
-      - LAMBDA_ENDPOINT=http://localstack:4566
-      - STEP_FUNCTIONS_ENDPOINT=http://stepfunctions-local:8083
-    networks:
-      - causal-cloud
-    depends_on:
-      - localstack
-      - stepfunctions-local
+  # Note: WebSocket Gateway removed - now using AWS API Gateway WebSocket service
 
   # ECS Task Simulator (for EDA)
   eda-simulator:
@@ -112,7 +98,7 @@ services:
     depends_on:
       - localstack
 
-  # Frontend (updated for WebSocket)
+  # Frontend (updated for AWS API Gateway WebSocket)
   frontend:
     build:
       context: ./frontend
@@ -120,16 +106,17 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8080
-      - NEXT_PUBLIC_COGNITO_ENDPOINT=http://localhost:4566
-      - NEXT_PUBLIC_AWS_REGION=us-east-1
+      - NEXT_PUBLIC_WEBSOCKET_URL=wss://your-api-gateway-id.execute-api.me-south-1.amazonaws.com/dev
+      - NEXT_PUBLIC_USER_POOL_ID=your-cognito-user-pool-id
+      - NEXT_PUBLIC_USER_POOL_CLIENT_ID=your-cognito-client-id
+      - NEXT_PUBLIC_AWS_REGION=me-south-1
     volumes:
       - ./frontend:/app
       - /app/node_modules
     networks:
       - causal-cloud
     depends_on:
-      - websocket-gateway
+      - localstack
 
   # AWS CLI for setup scripts
   aws-cli:
