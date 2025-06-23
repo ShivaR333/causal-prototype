@@ -6,11 +6,17 @@ const poolData = {
   ClientId: process.env.NEXT_PUBLIC_USER_POOL_CLIENT_ID || ''
 };
 
-if (!poolData.UserPoolId || !poolData.ClientId) {
-  console.error('Cognito configuration missing. Please set NEXT_PUBLIC_USER_POOL_ID and NEXT_PUBLIC_USER_POOL_CLIENT_ID');
+// Check if we have valid Cognito configuration
+const hasValidCognitoConfig = poolData.UserPoolId && poolData.ClientId && 
+  poolData.UserPoolId !== '' && poolData.ClientId !== '';
+
+if (!hasValidCognitoConfig) {
+  console.warn('Cognito configuration missing. Please set NEXT_PUBLIC_USER_POOL_ID and NEXT_PUBLIC_USER_POOL_CLIENT_ID');
 }
 
-const userPool = new CognitoUserPool(poolData);
+// Only create UserPool if we have valid configuration
+const userPool = hasValidCognitoConfig ? 
+  new CognitoUserPool(poolData) : null;
 
 export interface AuthUser {
   username: string;
@@ -44,6 +50,8 @@ class AuthService {
   }
 
   private checkExistingSession(): void {
+    if (!userPool) return;
+    
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) {
       cognitoUser.getSession((err: any, session: CognitoUserSession) => {
@@ -89,6 +97,8 @@ class AuthService {
   }
 
   private async refreshTokens(): Promise<void> {
+    if (!userPool) return;
+    
     const cognitoUser = userPool.getCurrentUser();
     if (!cognitoUser) return;
 
@@ -113,6 +123,13 @@ class AuthService {
   }
 
   async signUp(email: string, password: string, username?: string): Promise<SignUpResult> {
+    if (!userPool) {
+      return {
+        success: false,
+        message: 'Cognito not configured. Please check environment variables.'
+      };
+    }
+    
     return new Promise((resolve) => {
       const attributeList = [
         {
@@ -147,6 +164,13 @@ class AuthService {
   }
 
   async confirmSignUp(username: string, code: string): Promise<{ success: boolean; message: string }> {
+    if (!userPool) {
+      return {
+        success: false,
+        message: 'Cognito not configured. Please check environment variables.'
+      };
+    }
+    
     return new Promise((resolve) => {
       const cognitoUser = new CognitoUser({
         Username: username,
@@ -172,6 +196,13 @@ class AuthService {
   }
 
   async signIn(username: string, password: string): Promise<SignInResult> {
+    if (!userPool) {
+      return {
+        success: false,
+        message: 'Cognito not configured. Please check environment variables.'
+      };
+    }
+    
     return new Promise((resolve) => {
       const authenticationDetails = new AuthenticationDetails({
         Username: username,
@@ -214,6 +245,8 @@ class AuthService {
   }
 
   async signOut(): Promise<void> {
+    if (!userPool) return;
+    
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) {
       cognitoUser.signOut();
@@ -228,6 +261,13 @@ class AuthService {
   }
 
   async forgotPassword(username: string): Promise<{ success: boolean; message: string }> {
+    if (!userPool) {
+      return {
+        success: false,
+        message: 'Cognito not configured. Please check environment variables.'
+      };
+    }
+    
     return new Promise((resolve) => {
       const cognitoUser = new CognitoUser({
         Username: username,
@@ -253,6 +293,13 @@ class AuthService {
   }
 
   async resetPassword(username: string, code: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    if (!userPool) {
+      return {
+        success: false,
+        message: 'Cognito not configured. Please check environment variables.'
+      };
+    }
+    
     return new Promise((resolve) => {
       const cognitoUser = new CognitoUser({
         Username: username,
