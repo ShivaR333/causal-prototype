@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react'
 import { ChatMessage } from '@/components/ChatMessage'
 import { MessageInput } from '@/components/MessageInput'
 import { CausalForm } from '@/components/CausalForm'
-import AuthForm from '@/components/AuthForm'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { causalAPI, formatCausalResponse, createNaturalLanguageQuery, CausalQueryRequest } from '@/lib/api'
 import { wsClient } from '@/lib/websocket'
 import { authService } from '@/lib/auth'
+import { LogOut, Zap } from 'lucide-react'
 
 export interface Message {
   id: string
@@ -17,31 +19,27 @@ export interface Message {
   data?: any
 }
 
-export default function Home() {
+function CausalAnalysisApp() {
+  const { user, signOut } = useAuth()
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'system',
-      content: 'Welcome to the Causal Analysis Agent! Please sign in to start analyzing causal relationships in your data.',
+      content: `Welcome back, ${user?.email.split('@')[0] || 'User'}! I'm ready to help you analyze causal relationships in your data.`,
       timestamp: new Date()
     }
   ])
   const [isLoading, setIsLoading] = useState(false)
   const [isConnected, setIsConnected] = useState<boolean | null>(null)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
 
-  // Initialize authentication and WebSocket
+  // Initialize WebSocket connection
   useEffect(() => {
-    // Check if user is already authenticated
-    if (authService.isAuthenticated()) {
-      handleAuthSuccess()
-    }
+    handleAuthSuccess()
   }, [])
 
   const handleAuthSuccess = async () => {
-    setIsAuthenticated(true)
     
     try {
       // Connect to WebSocket
@@ -117,18 +115,11 @@ export default function Home() {
   }
 
   const handleLogout = async () => {
-    await authService.logout()
+    await signOut()
     wsClient.disconnect()
-    setIsAuthenticated(false)
     setIsConnected(null)
     setSessionId(null)
     setPendingPrompt(null)
-    setMessages([{
-      id: '1',
-      type: 'system',
-      content: 'You have been logged out. Please sign in to continue.',
-      timestamp: new Date()
-    }])
   }
 
   const addMessage = (message: Omit<Message, 'id' | 'timestamp'>) => {
@@ -221,48 +212,41 @@ export default function Home() {
     }
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-2xl w-full">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Causal Analysis Agent
-            </h1>
-            <p className="text-gray-600">
-              Sign in to start analyzing causal relationships in your data
-            </p>
-          </div>
-          <AuthForm onAuthSuccess={handleAuthSuccess} />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 p-4">
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-800">
-                Causal Analysis Agent
-              </h1>
-              <p className="text-sm text-gray-600">
-                {isConnected === null ? 'Checking connection...' : 
-                 isConnected ? '🟢 Connected via WebSocket' : 
-                 '🔴 Disconnected - using fallback API'}
-                {sessionId && ` • Session: ${sessionId.slice(-8)}`}
-              </p>
+            <div className="flex items-center space-x-3">
+              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <Zap className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-gray-800">
+                  Causal Analysis Agent
+                </h1>
+                <p className="text-sm text-gray-600">
+                  {isConnected === null ? 'Checking connection...' : 
+                   isConnected ? '🟢 Connected via WebSocket' : 
+                   '🔴 Disconnected - using fallback API'}
+                  {sessionId && ` • Session: ${sessionId.slice(-8)}`}
+                </p>
+              </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded"
-            >
-              Sign Out
-            </button>
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-gray-600">
+                Welcome, <span className="font-medium">{user?.email.split('@')[0]}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -302,5 +286,15 @@ export default function Home() {
         <CausalForm onSubmit={handleCausalQuery} disabled={isLoading || !isConnected} />
       </div>
     </div>
+  )
+}
+
+export default function Home() {
+  return (
+    <AuthProvider>
+      <ProtectedRoute>
+        <CausalAnalysisApp />
+      </ProtectedRoute>
+    </AuthProvider>
   )
 }

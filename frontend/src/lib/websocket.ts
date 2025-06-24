@@ -139,7 +139,7 @@ export class WebSocketClient {
   private handleConnectionAck(message: WebSocketMessage) {
     // Extract session info from connection acknowledgment
     this.sessionId = message.sessionId || message.payload?.sessionId || null;
-    this.userId = message.userId || message.payload?.userId || null;
+    this.userId = (message as any).userId || message.payload?.userId || null;
     
     const authStatus = this.getAuthStatus();
     

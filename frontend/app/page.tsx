@@ -98,8 +98,8 @@ export default function Home() {
           },
           onResponse: (data) => {
             if (mounted) {
-              setAgentState(data.state || 'ready')
-              setRequiresConfirmation(data.requires_confirmation || false)
+              setAgentState((data as any).state || 'ready')
+              setRequiresConfirmation((data as any).requires_confirmation || false)
               addMessage({
                 type: 'assistant',
                 content: data.payload?.response || 'Analysis complete',
@@ -283,10 +283,10 @@ export default function Home() {
         {agentState !== 'initial' && (
           <AgentStatusPanel
             isConnected={isConnected}
-            isAuthenticated={isAuthenticated}
             sessionId={authStatus.sessionId}
             agentState={agentState}
             requiresConfirmation={requiresConfirmation}
+            onReset={handleReset}
           />
         )}
       </div>

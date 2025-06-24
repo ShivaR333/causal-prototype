@@ -1,4 +1,4 @@
-import { CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserSession } from 'amazon-cognito-identity-js';
+import { CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserSession, CognitoUserAttribute } from 'amazon-cognito-identity-js';
 
 // Cognito configuration
 const poolData = {
@@ -132,10 +132,10 @@ class AuthService {
     
     return new Promise((resolve) => {
       const attributeList = [
-        {
+        new CognitoUserAttribute({
           Name: 'email',
           Value: email
-        }
+        })
       ];
 
       userPool.signUp(
@@ -156,7 +156,7 @@ class AuthService {
           resolve({
             success: true,
             message: 'Sign up successful',
-            needsConfirmation: !result?.user.isSignedUp()
+            needsConfirmation: result?.userConfirmed === false
           });
         }
       );
